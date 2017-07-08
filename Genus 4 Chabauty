@@ -1,0 +1,111 @@
+# Computes the Strassman bound for the given power series.
+def strassman_bound(F):
+	n = F.precision_absolute() - 1
+	valuations = [F[i].valuation() for i in range(n + 1)]
+	v = min(valuations)
+	if RR(n) - RR(log(n,p)) >= v:
+		return n - valuations[::-1].index(v)
+	return None
+
+# Lifts a given point in X(Fp) to X(Qp).
+def lift(point):
+	a, b, c = point
+	if c == 0:
+		return X(0,1,0)
+	elif b != 0:
+		# Lift b to a square root of f(a)
+		a_lift = a.lift()
+		n = Qp(f(a_lift))
+		v = None
+		s = b.lift()
+		while v != s:
+			v = s
+			s = (v + n/v)/2
+		return X(a_lift,s)
+	else:
+		# Lift a to a root of f
+		v = None
+		r = Qp(a.lift())
+		while v != r:
+			v = r
+			r = v - f(v)/f.derivative()(v)
+		return X(r,0)
+
+# Expresses x and y as power series at the given point.	
+def power_series_at(pt):
+	a, b, c = pt
+	if c != 0:
+		return X.local_coord(pt, 10)
+	else:
+		Y = HyperellipticCurve(x*f.reverse())
+		u, v = Y.local_coord(Y(0,0), 10)
+		t = parent(u).gen()
+		return (1/u, t/u^(g+1))
+
+p = 13
+Qp = pAdicField(p,10)
+_.<x> = Qp[]
+i = (Qp(-1)).sqrt()
+f = x^9 + (144*i + 432)*x^8 + (49664*i + 72192)*x^7 + (6881280*i + 6307840)*x^6 + (531628032*i + 368050176)*x^5 + (30551310336*i + 18085838848)*x^4 + (1551020064768*i + 578209972224)*x^3 + (55044300865536*i - 51539607552)*x^2 + (980764371976192*i - 515670953426944)*x + 5910974510923776*i - 9271082045407232
+X = HyperellipticCurve(f)
+g = X.genus()
+X_reduction = X.change_ring(GF(p))
+
+# Map the known rational points on C into X.
+C_pts = [(0,1), (0,-1), (1,8), (1,-8), (-1,8), (-1,-8), (3,40), (3,-40), (-1/3,40/243), (-1/3,-40/243)]
+X_pts = [X((32-96*i)/(a + i), b*(32-96*i)^4/(a + i)^5) for (a,b) in C_pts] + [X(0,(32-96*i)^4), X(0,-(32-96*i)^4)]
+
+B = X(0,(32-96*i)^4) # a basepoint for integration
+
+row1 = X.coleman_integrals_on_basis(B, X_pts[0])[0:g]
+row2 = X.coleman_integrals_on_basis(B, X_pts[2])[0:g]
+[s.valuation() for s in row1]
+[s.valuation() for s in row2]
+
+M = matrix([row1, row2])
+v, w = M.right_kernel_matrix().rows()
+a, b = v[2], v[3]
+c, d = w[2], w[3]
+
+# Construct a basis for the annihilator
+omega0 = X.invariant_differential()
+xmw = X.monsky_washnitzer_gens()[0]
+omega1 = xmw*omega0
+omega2 = xmw^2*omega0
+omega3 = xmw^3*omega0
+alpha = omega0 + a*omega2 + b*omega3
+beta = omega1 + c*omega2 + d*omega3
+
+_.<z> = Qp[]
+alphapoly = 1 + a*z^2 + b*z^3
+betapoly = z + c*z^2 + d*z^3
+
+S_tilde = [X.residue_disc(Q) for Q in X_pts]
+[P for P in X_reduction.rational_points() if P not in S_tilde]
+
+# Bounds the number of points in both S and the given residue disk.
+def bound_for_disk(basepoint, coeffs, reduction_point):
+	Q = lift(reduction_point)
+	xt, yt = power_series_at(Q)
+	t = parent(xt).gen()
+	eta = coeffs[0]*alpha + coeffs[1]*beta
+	etapoly = coeffs[0]*alphapoly + coeffs[1]*betapoly
+	w = etapoly(xt)*xt.derivative()/(2*yt)
+	F = eta.integrate(basepoint, Q) + w.integral()(p*t)
+	return strassman_bound(F)
+
+# Integration of alpha yields upper bound of 1 for residue disks above S_tilde.
+for pt in S_tilde:
+	print bound_for_disk(B, (1,0), pt)
+
+# Integration of alpha yields upper bound of 1 for residue disks above infinity and (2,0).
+for pt in [X_reduction(0,1,0), X_reduction(2,0)]:
+	print bound_for_disk(B, (1,0), pt)
+
+# Integration of alpha+5*beta rules out points in the residue disks above (6,+-3).
+for pt in [X_reduction(6,3), X_reduction(6,-3)]:
+	print bound_for_disk(B, (1,5), pt)
+	
+# Integration of alpha+beta rules out points in the residue disks above (11,+-2).
+for pt in [X_reduction(11,2), X_reduction(11,-2)]:
+	print bound_for_disk(B, (1,1), pt)
